@@ -3,11 +3,11 @@
 //  Name    : NixieSpeed                              
 //  Author  : Hartvik Line
 //  Date    : 17 Aug, 2014    
-//  Modified: 20 Sep 2014                                 
-//  Version : 1.0                                            
-//  Notes   : Code for calculating speed and show in nixie via shiftreg 74HC595 and K155          //
+//  Modified: 02 feb 2015                                 
+//  Version : 2.0                                            
+//  Notes   : Code for calculating speed and show in nixie via shiftreg 74HC595 and K155 nixiedrivers
 //          :                          
-//****************************************************************
+//**************************************************************//
 
 #include <Encoder.h>
 #define BUFFER_SIZE 100
@@ -55,11 +55,8 @@ void count(byte data, byte data2){
 	// shift out the bits:
 	shiftOut(dataPin, clockPin, MSBFIRST, data);
 	shiftOut(dataPin, clockPin, MSBFIRST, data2);
-
-	//take the latch pin high so the LEDs will light up:
+	
 	digitalWrite(latchPin, HIGH);
-	// pause before next value:
-
 }
 
 int calculateNewSpeed(){
@@ -72,7 +69,6 @@ int calculateNewSpeed(){
 
 
 
-	//kmt = ((diff + diffold) / 33)/2;
 	kmt = ((diff + diffold) / 24) / 2;
 	diffold = diff;
 	Serial.println(kmt);
