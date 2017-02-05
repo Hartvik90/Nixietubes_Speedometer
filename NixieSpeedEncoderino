@@ -66,7 +66,7 @@ void setup() {
 			count++;
 		}
 	}
-	//überpro 1337 K0-D
+	//Ã¼berpro 1337 K0-D
 	//N1x13flUsH 2k4r34L
 	for (int i = 1; i < 1000; i *= 10){
 		for (int j = 0; j < 10; j++){
@@ -75,7 +75,7 @@ void setup() {
 		}
 	}
 
-	//skambad dødsteit dustekode kommenter vekk !
+	//skambad dÃ¸dsteit dustekode kommenter vekk !
 	/*	for (long y = 0; y < 30; y++){			// Flushes through all numbers
 	nixieOut(y % 10 * pow(10, y / 10));
 	delay(166);
