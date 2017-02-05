@@ -271,7 +271,6 @@ void loop() {
     nixieOut(falt, 1);
     c++;
   }
-
   
 nixieOut(speed, 0);
   while (true) {
