@@ -1,145 +1,285 @@
+//**************************************************************//
+//  Name      : NixieSpeedGPS
+//  Author    : Hartvik Line
+//  Date      : 16 Nov, 2016
+//  Modified  : 16 Nov, 2016
+//  Version   : 1.1 (Working edition (!), still some issues with LED output.)
+//  Notes     : Code for showing speed from gps module to nixie tubes
+//            : via shiftreg 74HC595 and K155 nixiedrivers
+//****************************************************************
 
-	//**************************************************************//
-	//  Name			: NixieSpeedGPS                              
-	//  Author			: Hartvik Line
-	//  Date			: 16 Nov, 2016    
-	//  Modified		: 16 Nov, 2016                                  
-	//  Version			: 1.0                                            
-	//  Notes			: Code for calculating speed and show in nixie
-	//					: via shiftreg 74HC595 and K155 nixiedrivers
-	//****************************************************************
 
-
-	//**************************************************************//
-	//  Init			: Voltage level will show the first 5 secounds, while GPS is connecting
-	//					:	
-	//****************************************************************
+//**************************************************************//
+//  Init      : Voltage level will show the first 5 secounds, while GPS is connecting.
+//****************************************************************
 
 #define BUFFER_SIZE 100;
 #include <EEPROM.h>
+#include <TinyGPS.h>
+#include <SoftwareSerial.h>
+
+unsigned long fix_age;
+
+SoftwareSerial GPS(2, 3);
+TinyGPS gps;
+void gpsdump(TinyGPS &gps);
+bool feedgps();
+void getGPS();
+long lat, lon;
+float LAT, LON;
+unsigned long speed;
+unsigned long falt;
+
+
 
 
 //**************************************************************\\
 //Pin layout for 74HC595
-int latchPin = 8;
-int clockPin = 12;
+int latchPin = 7;
+int clockPin = 6;
 int sdPin = 4;
-int dataPin = 11;
+int dataPin = 5;
 
+//Pin for voltage reading
+int Kmp_Mph_Pin = 14;
+int voltMeasurePin = 0;
+int commaPin = 24;
 
+//Boolvalues for shiftreg data
+bool ledGps = false;
+bool ledMph = false;
+bool ledKph = false;
+bool ledVolt = false;
+bool kmh = false;
 
 //**************************************************************//
-
-int pos1;
-int pos2;
-long diff = 0;
-long diffold = 0;
 long oldSpeed = 0;
 long newSpeed = 0;
-int kCount;
-int kmt;
-int tenMeterOld;
-int tenMeter;
+long voltage = 0;
+
+int gpsSatellites = 0;
+int shifted = 0;
 
 byte byteArray[100];
 byte byteArrayFlip[100];
 
 
 void setup() {
-	//set pins to output so you can control the shift register
-	pinMode(latchPin, OUTPUT);
-	pinMode(clockPin, OUTPUT);
-	pinMode(dataPin, OUTPUT);
+  //set pins to output so you can control the shift register
+  pinMode(latchPin, OUTPUT);
+  pinMode(clockPin, OUTPUT);
+  pinMode(dataPin, OUTPUT);
+  pinMode(commaPin, OUTPUT);
+  pinMode(Kmp_Mph_Pin, INPUT);
+  GPS.begin(9600);
+  Serial.begin(9600);
+  // Loading tenMeters
 
-	// Loading tenMeters
-
-	// Creates an array formatting from 8 bit format to 2*4 bit format.
-	int count;
-	for (int i = 0; i < 10; i++) {
-		for (int j = 0; j < 10; j++) {
-			byteArray[count] = (j << 4) | i;
-			count++;
-		}
-	}
-	//überpro 1337 K0-D
-	//N1x13flUsH 2k4r34L
-	for (int i = 1; i < 1000; i *= 10) {
-		for (int j = 0; j < 10; j++) {
-			nixieOut(i*j);
-			delay(66);
-		}
-	}
-
-	//skambad dødsteit dustekode kommenter vekk !
-	/*	for (long y = 0; y < 30; y++){			// Flushes through all numbers
-	nixieOut(y % 10 * pow(10, y / 10));
-	delay(166);
-	}*/
-}
-//	Serial.begin(9600);					// Open serialcommunication
-
-
-void count(byte data, byte data2) {
-	// Shift out the bits:
-	digitalWrite(latchPin, LOW);
-	shiftOut(dataPin, clockPin, MSBFIRST, data);
-	shiftOut(dataPin, clockPin, MSBFIRST, data2);
-	digitalWrite(latchPin, HIGH);
-}
-/*
-int calculateNewSpeed() {
-	myEnc.write(0);
-	pos1 = myEnc.read();
-	delay(100);
-	pos2 = myEnc.read();
-	diff = abs(pos1 - pos2);
-	kmt = ((diff + diffold) / 60);
-	kCount += kmt;
-	if (kCount >= 360) {
-		tenMeter += 1;
-		kCount -= 360;
-	}
-
-	diffold = diff;
-	return kmt;
-
-}
-*/
-
-void nixieOut(int treeDig) {
-	//Calculates from decimalnvalue to binary sh-reg outputnumeric value out to Nixies. 
-	//In = 3 digit int/long.
-	count(byteArray[treeDig % 100], byteArray[treeDig / 100]);
+  // Creates an array formatting from 8 bit format to 2*4 bit format.
+  int count;
+  for (int i = 0; i < 10; i++) {
+    for (int j = 0; j < 10; j++) {
+      byteArray[count] = (j << 4) | i;
+      count++;
+    }
+  }
+  //überpro 1337 K0-D
+  //N1x13flUsH 2k4r34L
+  for (int i = 1; i < 1000; i *= 10) {
+    for (int j = 0; j < 10; j++) {
+      nixieOut(i * j, 1);
+      delay(66);
+    }
+  }
 }
 
+
+void count(byte data, byte data2, bool comma) {
+  if (comma) {
+    digitalWrite(commaPin, HIGH);
+  }
+  else {
+    digitalWrite(commaPin, LOW);
+  }
+  if (ledGps) {
+    data = data | B00010000;
+  }
+  if (ledMph) {
+    data = data | B00100000;
+  }
+  if (ledKph) {
+    data = data | B01000000;
+  }
+  if (ledVolt) {
+    data = data | B10000000;
+  }
+
+  // Shift out the bits:
+  digitalWrite(latchPin, LOW);
+  shiftOut(dataPin, clockPin, MSBFIRST, data);
+  shiftOut(dataPin, clockPin, MSBFIRST, data2);
+  digitalWrite(latchPin, HIGH);
+}
+
+
+void nixieOut(int treeDig, bool comma) {
+  //Calculates from decimalnvalue to binary sh-reg outputnumeric value out to Nixies.
+  //In = 3 digit int/long.
+  treeDig = DecFix(treeDig);
+  count(byteArray[(treeDig / 100) * 10], byteArray[(treeDig % 100)], comma);
+}
+
+void loopGps() {
+  long lat, lon;
+  unsigned long fix_age, time, date, speed, course;
+  unsigned long chars;
+  unsigned short sentences, failed_checksum;
+
+  // retrieves +/- lat/long in 100000ths of a degree
+  gps.get_position(&lat, &lon, &fix_age);
+  gpsSatellites = gps.satellites();
+
+
+//  Enable gps LED if signal is good
+  if (gpsSatellites < 3) {
+    ledGps = false;
+  }
+  else {
+    ledGps = true;
+  }
+
+  getGPS();
+  Serial.print("Latitude: ");
+  Serial.print(LAT / 100000, 7);
+  
+//  Plotting to computer:
+//  Serial.print("Longitude: ");
+//  Serial.println(LON / 100000, 7);
+//  Serial.print("speed: ");
+//  Serial.println(speed);
+//  Serial.print("Altitude: ");
+//  Serial.println(falt);
+//  Serial.print("Number of satellites: ");
+//  Serial.println(gpsSatellites);
+}
+
+
+
+//  DecFix: Code for fixing PCB layout screw up...
+int DecFix(int In) {
+  In = 999 - In;
+  int ones  =   (int)(In % 10);
+  int tens  =   (int)((In / 10) % 10);
+  int hunds =   (int)((In / 100) % 10);
+
+  if (ones > 7) {
+    ones -= 8;
+  } else {
+    ones += 2;
+  }
+
+  if (tens > 7) {
+    tens -= 8;
+  } else {
+    tens += 2;
+  }
+
+  if (hunds > 7) {
+    hunds -= 8;
+  } else {
+    hunds += 2;
+  }
+
+  shifted = 100 * ones ;
+  shifted += 10 * hunds;
+  shifted += tens;
+
+  return shifted;
+}
+
+
+void getGPS() {
+  bool newdata = false;
+  unsigned long start = millis();
+
+  while (millis() - start < 500)
+  {
+    if (feedgps()) {
+      newdata = true;
+    }
+  }
+  if (newdata)
+  {
+    gpsdump(gps);
+  }
+}
+
+bool feedgps() {
+  while (GPS.available())
+  {
+    if (gps.encode(GPS.read()))
+      return true;
+  }
+  return 0;
+}
+
+void gpsdump(TinyGPS &gps)
+{
+  //byte month, day, hour, minute, second, hundredths;
+  gps.get_position(&lat, &lon);
+  if (ledKph) {
+        speed = gps.f_speed_kmph(); // speed in km/hr
+
+  }
+  else {
+  speed = gps.f_speed_mph(); // speed in miles/hr
+
+  }
+  falt = gps.f_altitude();
+  LAT = lat;
+  LON = lon;
+  {
+    feedgps(); // If we don't feed the gps during this long routine, we may drop characters and get checksum errors
+  }
+}
+
+//  "Main" loop
 void loop() {
-	EEPROM.write(321, 4);
-	tenMeter = 123;
-	save();
-	nixieOut(tenMeter); //Tripcounter (Show 1000 km)
-	delay(3000);
+      loopGps();
+  if (digitalRead(Kmp_Mph_Pin)) {
+    ledKph = true;
+    ledMph = false;
+  }
+  else {
+    ledKph = false;
+    ledMph = true;
+  }
+  //Show voltage
+  ledVolt = true;
 
-	//For debugging memory
-	nixieOut(EEPROM.read(4)); //Show EEPROM1
-	delay(3000);
-	nixieOut(EEPROM.read(5)); //Show EEPROM2
-	delay(3000);
+  int c = 0;
+  while (c < 20) {
+    voltage = (long)(((long)analogRead(voltMeasurePin) * (long)155) / 1024);
+    nixieOut(voltage, 1);
+    c++;
+    delay(500);
+  }
+  ledVolt = false;
+  c = 0;
+  while (c < 20) {
+    loopGps();
+    nixieOut(falt, 1);
+    c++;
+  }
 
-	while (true) {
-		//Save tripcounter if voltage drops under 7 volt.
-		
-		newSpeed = calculateNewSpeed();
-		//For debugging:
-		//nixieOut(myEnc.read());
-
-
-		if (newSpeed != oldSpeed) {
-			nixieOut(newSpeed);
-			oldSpeed = newSpeed;
-		}
-	}
+  
+nixieOut(speed, 0);
+  while (true) {
+    loopGps();
+    newSpeed = (int)speed;
+        if (newSpeed != oldSpeed) {
+          nixieOut(newSpeed, 0);
+          oldSpeed = newSpeed;
+        }
+  }
 }
-
-
-
-
